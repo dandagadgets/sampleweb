@@ -2,6 +2,71 @@ if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
   document.documentElement.classList.add('reduce-motion');
 }
 
+// Gentle 3D tilt on cards — fine-pointer devices only, respects reduced motion
+(function initCardTilt() {
+  const canHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (!canHover || document.documentElement.classList.contains('reduce-motion')) return;
+
+  const MAX_TILT = 5; // degrees — subtle, not the fairground-mirror kind
+  const cards = document.querySelectorAll(
+    '.qual, .service, .step, .timeline-item, .clinic-card, .profile-card, .connect__card:not(.connect__card--placeholder)'
+  );
+
+  cards.forEach((el) => {
+    let frame = null;
+
+    el.addEventListener('mouseenter', () => { el.style.transition = 'none'; });
+
+    el.addEventListener('mousemove', (e) => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        const rect = el.getBoundingClientRect();
+        const px = (e.clientX - rect.left) / rect.width - 0.5;
+        const py = (e.clientY - rect.top) / rect.height - 0.5;
+        const rotateX = (-py * MAX_TILT).toFixed(2);
+        const rotateY = (px * MAX_TILT).toFixed(2);
+        el.style.transform = `perspective(700px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-3px)`;
+        frame = null;
+      });
+    });
+
+    el.addEventListener('mouseleave', () => {
+      if (frame) { cancelAnimationFrame(frame); frame = null; }
+      el.style.transition = '';
+      el.style.transform = '';
+    });
+  });
+})();
+
+// Hero portrait — a slightly stronger tilt that follows the cursor across the whole hero
+(function initPortraitTilt() {
+  const canHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  const portrait = document.querySelector('.hero__portrait');
+  const stage = document.querySelector('.hero__visual');
+  if (!canHover || !portrait || !stage || document.documentElement.classList.contains('reduce-motion')) return;
+
+  const MAX_TILT = 9;
+  let frame = null;
+
+  stage.addEventListener('mousemove', (e) => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      const rect = stage.getBoundingClientRect();
+      const px = (e.clientX - rect.left) / rect.width - 0.5;
+      const py = (e.clientY - rect.top) / rect.height - 0.5;
+      const rotateX = (-py * MAX_TILT).toFixed(2);
+      const rotateY = (px * MAX_TILT).toFixed(2);
+      portrait.style.transform = `perspective(1200px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+      frame = null;
+    });
+  });
+
+  stage.addEventListener('mouseleave', () => {
+    if (frame) { cancelAnimationFrame(frame); frame = null; }
+    portrait.style.transform = 'perspective(1200px)';
+  });
+})();
+
 // Theme (Light / Dark)
 (function initTheme() {
   const STORAGE_KEY = 'theme';
