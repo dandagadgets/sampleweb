@@ -521,3 +521,10 @@ section h2 { font-size: clamp(1.6rem, 3.2vw, 2.35rem); font-weight: 600; margin-
   .nav__toggle { display: flex; }
   section { padding: 60px 20px; }
 }
+
+/* CURSOR */
+/* !important needed: overrides the pointer/text cursors several
+   elements (buttons, inputs, links) already set explicitly. */
+* {
+  cursor: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiI+PHRleHQgeD0iMSIgeT0iMjYiIGZvbnQtc2l6ZT0iMjYiPvCfjLg8L3RleHQ+PC9zdmc+') 12 12, auto !important;
+}
