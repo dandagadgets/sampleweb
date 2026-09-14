@@ -209,7 +209,7 @@
     </div>
     <div class="about__visual" aria-hidden="true">
       <div class="doctor-card">
-        <img class="doctor-card__avatar" src="images/placeholder-avatar.svg" alt="Aalia Naeem — placeholder photo, to be updated" width="96" height="96">
+        <img class="doctor-card__avatar" src="images/placeholder-avatar.svg" alt="Aalia Naeem" width="96" height="96">
         <p class="doctor-card__name">Aalia Naeem</p>
         <p class="doctor-card__role">Speech &amp; Language Pathologist</p>
         <div class="doctor-card__badge">
@@ -446,28 +446,32 @@
       <h2>Let's get you seen.</h2>
       <p class="book__sub">Fill in your details below and we'll get back to you to confirm your appointment &mdash; or reach out directly at <a href="tel:+923108500105">0310-8500105</a>.</p>
 
-      <form id="bookForm" class="book-form">
+      <!-- Sign up free at formspree.io with aalo16emma@gmail.com, then replace
+           REPLACE_WITH_FORMSPREE_ID below with the real form ID it gives you. -->
+      <form id="bookForm" class="book-form" action="https://formspree.io/f/REPLACE_WITH_FORMSPREE_ID" method="POST">
+        <input type="hidden" name="_subject" value="New appointment request — Aalia Naeem site">
         <div class="book-form__row">
           <label>
             <span>Full name</span>
-            <input type="text" name="name" required placeholder="Your name">
+            <input id="bookName" type="text" name="name" required placeholder="Your name">
           </label>
           <label>
             <span>Phone number</span>
-            <input type="tel" name="phone" required placeholder="03XX-XXXXXXX">
+            <input id="bookPhone" type="tel" name="phone" required placeholder="03XX-XXXXXXX">
           </label>
         </div>
         <label class="book-form__full">
           <span>Preferred day &amp; time</span>
-          <input type="text" name="day" required placeholder="e.g. Saturday morning">
+          <input id="bookDay" type="text" name="day" required placeholder="e.g. Saturday morning">
         </label>
         <label class="book-form__full">
           <span>Reason for visit (optional)</span>
-          <textarea name="message" rows="3" placeholder="Briefly describe your (or your child's) concern"></textarea>
+          <textarea id="bookMessage" name="message" rows="3" placeholder="Briefly describe your (or your child's) concern"></textarea>
         </label>
         <button type="submit" class="btn btn--primary btn--block">Request Appointment</button>
       </form>
       <p id="bookConfirm" class="book-confirm" role="status" hidden>Thank you! Your request has been noted &mdash; we'll get back to you shortly to confirm your appointment with Aalia Naeem.</p>
+      <p id="bookError" class="book-confirm book-confirm--error" role="alert" hidden>Something went wrong sending your request. Please call or WhatsApp <a href="tel:+923108500105">0310-8500105</a> directly instead.</p>
     </div>
   </section>
 
@@ -498,6 +502,27 @@
         Email
         <small>aalo16emma@gmail.com</small>
       </a>
+      <span class="connect__card connect__card--placeholder">
+        <span class="connect__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M14 21v-7.5h2.5l.4-3h-2.9V8.3c0-.9.3-1.5 1.6-1.5H17V4.1c-.3 0-1.2-.1-2.3-.1-2.3 0-3.9 1.4-3.9 3.9v2.6H8.3v3h2.5V21H14z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </span>
+        Facebook
+        <small>Link coming soon</small>
+      </span>
+      <span class="connect__card connect__card--placeholder">
+        <span class="connect__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.6"/><circle cx="17.2" cy="6.8" r="1" fill="currentColor"/></svg>
+        </span>
+        Instagram
+        <small>Link coming soon</small>
+      </span>
+      <span class="connect__card connect__card--placeholder">
+        <span class="connect__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.6"/><circle cx="8.2" cy="8.6" r="1" fill="currentColor"/><path d="M8.2 11v6M12 11v6M12 13.5c0-1.5 1-2.5 2.3-2.5S16.5 12 16.5 13.5V17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </span>
+        LinkedIn
+        <small>Link coming soon</small>
+      </span>
     </div>
   </section>
 

@@ -779,6 +779,12 @@ section h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); margin-bottom: 18px; max-wid
   font-size: 0.9rem;
   max-width: 640px;
 }
+.book-confirm a { color: #fff; font-weight: 600; text-decoration: underline; }
+.book-confirm--error {
+  background: rgba(255, 196, 130, 0.18);
+  border-color: rgba(255, 196, 130, 0.45);
+  color: #ffe6c7;
+}
 
 /* CONNECT */
 .connect__intro { max-width: 640px; margin-bottom: 30px; }
@@ -806,6 +812,8 @@ section h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); margin-bottom: 18px; max-wid
 }
 .connect__card:hover { transform: translateY(-5px); box-shadow: 0 18px 36px rgba(194, 37, 92, 0.15); }
 .connect__card small { font-weight: 500; color: var(--ink-soft); font-size: 0.76rem; }
+.connect__card--placeholder { cursor: default; border-style: dashed; opacity: 0.6; }
+.connect__card--placeholder:hover { transform: none; box-shadow: var(--shadow); }
 .connect__icon {
   display: grid;
   place-items: center;

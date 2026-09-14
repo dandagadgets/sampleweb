@@ -9,7 +9,7 @@ if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
 
   const MAX_TILT = 7; // degrees
   const els = document.querySelectorAll(
-    '.qual, .service, .step, .timeline-item, .clinic-card, .facts-card, .doctor-card, .connect__card, .hstat, .chip, .badge'
+    '.qual, .service, .step, .timeline-item, .clinic-card, .facts-card, .doctor-card, .connect__card:not(.connect__card--placeholder), .hstat, .chip, .badge'
   );
 
   els.forEach((el) => {
@@ -220,15 +220,35 @@ if (floatCta && heroEl && bookEl && 'IntersectionObserver' in window) {
   ctaObserver.observe(bookEl);
 }
 
-// Appointment request form (client-side confirmation, no backend)
+// Appointment request form — submits to Formspree (see form's action attribute)
 const bookForm = document.getElementById('bookForm');
 const bookConfirm = document.getElementById('bookConfirm');
+const bookError = document.getElementById('bookError');
 
-if (bookForm && bookConfirm) {
-  bookForm.addEventListener('submit', (e) => {
+if (bookForm && bookConfirm && bookError) {
+  bookForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    bookForm.hidden = true;
-    bookConfirm.hidden = false;
-    bookConfirm.focus?.();
+    const submitBtn = bookForm.querySelector('button[type="submit"]');
+    const originalLabel = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Sending...';
+    bookError.hidden = true;
+
+    try {
+      const response = await fetch(bookForm.action, {
+        method: 'POST',
+        body: new FormData(bookForm),
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) throw new Error('Form submission failed');
+      bookForm.hidden = true;
+      bookConfirm.hidden = false;
+      bookConfirm.focus?.();
+    } catch (err) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel;
+      bookError.hidden = false;
+      bookError.focus?.();
+    }
   });
 }
