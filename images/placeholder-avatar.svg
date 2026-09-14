@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 700" role="img" aria-label="Placeholder profile photo">
-  <rect width="700" height="700" fill="#FDF7F9"/>
+  <rect width="700" height="700" fill="#FFF8FA"/>
 
   <defs>
     <g id="posy">
-      <path d="M0 40 Q-4 20 0 0" stroke="#7FB8AC" stroke-width="2.4" fill="none" stroke-linecap="round"/>
-      <path d="M0 24 Q-11 29 -17 21" stroke="#7FB8AC" stroke-width="2" fill="none" stroke-linecap="round"/>
-      <g fill="#E8A0B4">
+      <path d="M0 40 Q-4 20 0 0" stroke="#B7C2AE" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <path d="M0 24 Q-11 29 -17 21" stroke="#B7C2AE" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <g fill="#EFB0C4">
         <circle cx="-4" cy="-4" r="5.6"/>
         <circle cx="5" cy="-6" r="5.6"/>
         <circle cx="0" cy="-11" r="5.6"/>
       </g>
-      <circle cx="0" cy="-5" r="3.2" fill="#FBE3EA"/>
+      <circle cx="0" cy="-5" r="3.2" fill="#F8DCE6"/>
     </g>
   </defs>
 
@@ -28,22 +28,22 @@
   </g>
 
   <!-- silhouette -->
-  <ellipse cx="350" cy="630" rx="235" ry="235" fill="#F2B8C7"/>
-  <circle cx="350" cy="272" r="146" fill="#F2B8C7"/>
+  <ellipse cx="350" cy="630" rx="235" ry="235" fill="#F3CADA"/>
+  <circle cx="350" cy="272" r="146" fill="#F3CADA"/>
 
-  <!-- teal flower accent -->
+  <!-- lily accent -->
   <g transform="translate(452 168)">
-    <path d="M0 62 Q-7 30 4 0" stroke="#7FB8AC" stroke-width="3.2" fill="none" stroke-linecap="round"/>
-    <path d="M-2 40 Q-17 47 -26 36" stroke="#7FB8AC" stroke-width="2.6" fill="none" stroke-linecap="round"/>
-    <g fill="#4FB8A6">
+    <path d="M0 62 Q-7 30 4 0" stroke="#B7C2AE" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+    <path d="M-2 40 Q-17 47 -26 36" stroke="#B7C2AE" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+    <g fill="#E9A9C6">
       <ellipse cx="0" cy="-30" rx="10" ry="28" transform="rotate(0)"/>
       <ellipse cx="0" cy="-30" rx="10" ry="28" transform="rotate(72)"/>
       <ellipse cx="0" cy="-30" rx="10" ry="28" transform="rotate(144)"/>
       <ellipse cx="0" cy="-30" rx="10" ry="28" transform="rotate(216)"/>
       <ellipse cx="0" cy="-30" rx="10" ry="28" transform="rotate(288)"/>
     </g>
-    <circle cx="0" cy="0" r="7.5" fill="#FDF0E4"/>
-    <g stroke="#227D72" stroke-width="1.5" stroke-linecap="round">
+    <circle cx="0" cy="0" r="7.5" fill="#F6D9C4"/>
+    <g stroke="#C97A9A" stroke-width="1.5" stroke-linecap="round">
       <line x1="0" y1="0" x2="-3" y2="-6.5"/>
       <line x1="0" y1="0" x2="3.5" y2="-7"/>
       <line x1="0" y1="0" x2="0" y2="-9.5"/>
