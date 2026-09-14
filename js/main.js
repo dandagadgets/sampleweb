@@ -2,81 +2,7 @@ if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
   document.documentElement.classList.add('reduce-motion');
 }
 
-// Subtle 3D hover tilt on card tiles (fine-pointer devices only, respects reduced motion)
-(function initTilt() {
-  const canHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-  if (!canHover || document.documentElement.classList.contains('reduce-motion')) return;
-
-  const MAX_TILT = 7; // degrees
-  const els = document.querySelectorAll(
-    '.qual, .service, .step, .timeline-item, .clinic-card, .facts-card, .doctor-card, .connect__card:not(.connect__card--placeholder), .hstat, .chip, .badge'
-  );
-
-  els.forEach((el) => {
-    let frame = null;
-
-    el.addEventListener('mouseenter', () => {
-      el.style.transition = 'none';
-    });
-
-    el.addEventListener('mousemove', (e) => {
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        const rect = el.getBoundingClientRect();
-        const px = (e.clientX - rect.left) / rect.width - 0.5;
-        const py = (e.clientY - rect.top) / rect.height - 0.5;
-        const rotateX = (-py * MAX_TILT).toFixed(2);
-        const rotateY = (px * MAX_TILT).toFixed(2);
-        el.style.transform = `perspective(700px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-4px)`;
-        frame = null;
-      });
-    });
-
-    el.addEventListener('mouseleave', () => {
-      if (frame) {
-        cancelAnimationFrame(frame);
-        frame = null;
-      }
-      el.style.transition = '';
-      el.style.transform = '';
-    });
-  });
-})();
-
-// Scroll-linked parallax depth: background dots and decorative blobs
-// drift at different speeds than the page content, so scrolling itself
-// reads as moving through layers rather than a flat 2D page.
-(function initParallax() {
-  if (document.documentElement.classList.contains('reduce-motion')) return;
-
-  const blobs = document.querySelectorAll('.blob');
-  let ticking = false;
-
-  function update() {
-    const y = window.scrollY;
-    document.body.style.setProperty('--dots-parallax', (y * 0.12).toFixed(1) + 'px');
-    blobs.forEach((el, i) => {
-      const speed = 0.06 + (i % 3) * 0.025;
-      el.style.transform = `translateY(${(y * speed).toFixed(1)}px)`;
-    });
-    ticking = false;
-  }
-
-  window.addEventListener(
-    'scroll',
-    () => {
-      if (!ticking) {
-        requestAnimationFrame(update);
-        ticking = true;
-      }
-    },
-    { passive: true }
-  );
-
-  update();
-})();
-
-// Theme (White / Black)
+// Theme (Light / Dark)
 (function initTheme() {
   const STORAGE_KEY = 'theme';
   const root = document.documentElement;
@@ -91,11 +17,7 @@ if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
   }
 
   function apply(theme) {
-    if (theme === 'dark') {
-      root.setAttribute('data-theme', 'dark');
-    } else {
-      root.setAttribute('data-theme', 'light');
-    }
+    root.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
     buttons.forEach((btn) => {
       btn.setAttribute('aria-pressed', String(btn.dataset.themeChoice === theme));
     });
@@ -137,40 +59,7 @@ if (navToggle && navLinks) {
   });
 }
 
-// Animated count-up for stat numbers
-function animateCount(el) {
-  const target = parseFloat(el.dataset.count);
-  if (Number.isNaN(target)) return;
-  const decimals = el.dataset.decimals ? parseInt(el.dataset.decimals, 10) : 0;
-  const suffix = el.dataset.suffix || '';
-  const prefix = el.dataset.prefix || '';
-  const duration = 1200;
-
-  if (document.documentElement.classList.contains('reduce-motion')) {
-    const value = target.toLocaleString('en-US', {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    });
-    el.textContent = prefix + value + suffix;
-    return;
-  }
-
-  let startTime = null;
-  function step(ts) {
-    if (!startTime) startTime = ts;
-    const progress = Math.min((ts - startTime) / duration, 1);
-    const eased = 1 - Math.pow(1 - progress, 3);
-    const value = (target * eased).toLocaleString('en-US', {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    });
-    el.textContent = prefix + value + suffix;
-    if (progress < 1) requestAnimationFrame(step);
-  }
-  requestAnimationFrame(step);
-}
-
-// Scroll reveal (also triggers count-up for any [data-count] inside)
+// Scroll reveal — simple fade/slide, no tilt or count-up gimmicks
 const revealEls = document.querySelectorAll('[data-reveal]');
 
 if ('IntersectionObserver' in window && revealEls.length) {
@@ -179,7 +68,6 @@ if ('IntersectionObserver' in window && revealEls.length) {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
           entry.target.classList.add('is-visible');
-          entry.target.querySelectorAll('[data-count]').forEach(animateCount);
           observer.unobserve(entry.target);
         }
       });
@@ -188,10 +76,7 @@ if ('IntersectionObserver' in window && revealEls.length) {
   );
   revealEls.forEach((el) => observer.observe(el));
 } else {
-  revealEls.forEach((el) => {
-    el.classList.add('is-visible');
-    el.querySelectorAll('[data-count]').forEach(animateCount);
-  });
+  revealEls.forEach((el) => el.classList.add('is-visible'));
 }
 
 // Floating "Book Appointment" pill — shown once past the hero, hidden again over the booking form
