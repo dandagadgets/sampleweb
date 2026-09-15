@@ -441,6 +441,8 @@ section h2 { font-size: clamp(1.6rem, 3.2vw, 2.35rem); font-weight: 600; margin-
 .clinic-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 30px; box-shadow: var(--shadow); }
 .clinic-card h3 { font-size: 1.15rem; margin-bottom: 10px; }
 .clinic-card__area { margin-bottom: 18px; font-size: 0.92rem; }
+.clinic-card__fee { font-family: 'Fraunces', serif; font-weight: 600; color: var(--terracotta); font-size: 1.3rem; margin-bottom: 16px; }
+.clinic-card__fee span { display: block; font-family: 'Figtree', sans-serif; font-weight: 500; color: var(--ink-soft); font-size: 0.82rem; margin-top: 2px; }
 .clinic-card__timing-note { background: var(--panel); border: 1px dashed var(--border); border-radius: 12px; padding: 14px 16px; font-size: 0.85rem; color: var(--ink-soft); margin-bottom: 22px; }
 .clinic-card__timing-note strong { color: var(--terracotta); }
 .clinic-card__actions { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
