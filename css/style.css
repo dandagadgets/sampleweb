@@ -526,7 +526,9 @@ section h2 { font-size: clamp(1.6rem, 3.2vw, 2.35rem); font-weight: 600; margin-
 
 /* CURSOR */
 /* !important needed: overrides the pointer/text cursors several
-   elements (buttons, inputs, links) already set explicitly. */
+   elements (buttons, inputs, links) already set explicitly. The SVG
+   bakes a soft blurred pink halo behind the flower glyph, since a
+   native cursor image can't take a CSS filter/drop-shadow. */
 * {
-  cursor: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiI+PHRleHQgeD0iMSIgeT0iMjYiIGZvbnQtc2l6ZT0iMjYiPvCfjLg8L3RleHQ+PC9zdmc+') 12 12, auto !important;
+  cursor: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSI0NCI+PGRlZnM+PGZpbHRlciBpZD0iZzEiIHg9Ii0xMDAlIiB5PSItMTAwJSIgd2lkdGg9IjMwMCUiIGhlaWdodD0iMzAwJSI+PGZlR2F1c3NpYW5CbHVyIHN0ZERldmlhdGlvbj0iNiIvPjwvZmlsdGVyPjxmaWx0ZXIgaWQ9ImcyIiB4PSItMTAwJSIgeT0iLTEwMCUiIHdpZHRoPSIzMDAlIiBoZWlnaHQ9IjMwMCUiPjxmZUdhdXNzaWFuQmx1ciBzdGREZXZpYXRpb249IjMiLz48L2ZpbHRlcj48L2RlZnM+PGNpcmNsZSBjeD0iMTkiIGN5PSIxOCIgcj0iMTYiIGZpbGw9IiNGNDhGQjEiIG9wYWNpdHk9IjAuMzIiIGZpbHRlcj0idXJsKCNnMSkiLz48Y2lyY2xlIGN4PSIxOSIgY3k9IjE4IiByPSI5IiBmaWxsPSIjRUM2RkEwIiBvcGFjaXR5PSIwLjU1IiBmaWx0ZXI9InVybCgjZzIpIi8+PHRleHQgeD0iMiIgeT0iMzUiIGZvbnQtc2l6ZT0iMzQiPvCfjLg8L3RleHQ+PC9zdmc+') 16 16, auto !important;
 }
