@@ -178,8 +178,17 @@ TEXT_STYLES = {
 SUB = 6  # sub-pixels per font pixel; outline/extrude widths are measured in these
 
 
-@lru_cache(None)
 def pixel_text(text, cell, style="gold", face="silk", outline=2, extrude=3, shadow=3):
+    return _text_render(text, cell, style, face, outline, extrude, shadow)[0]
+
+
+def text_meta(text, cell, style="gold", face="silk", outline=2, extrude=3, shadow=3):
+    """(image, letter cut positions) - the cuts let Letters animate one character at a time."""
+    return _text_render(text, cell, style, face, outline, extrude, shadow)
+
+
+@lru_cache(None)
+def _text_render(text, cell, style, face, outline, extrude, shadow):
     f = font(face)
     l, t, r, b = f.getbbox(text)
     _, ht, _, hb = f.getbbox("H")
@@ -207,16 +216,23 @@ def pixel_text(text, cell, style="gold", face="silk", outline=2, extrude=3, shad
     out[m, :3] = np.broadcast_to(row_col[:, None, :], (hh, ww, 3))[m]
     out[m, 3] = 255
     img = Image.fromarray(out)
-    img = img.crop(img.getbbox())
+    box = img.getbbox()
+    img = img.crop(box)
     s = cell / SUB
-    return img.resize((max(1, round(img.width * s)), max(1, round(img.height * s))), Image.NEAREST)
+    img = img.resize((max(1, round(img.width * s)), max(1, round(img.height * s))), Image.NEAREST)
+    cuts = [0.0] + [((pad - l + f.getlength(text[:i]) - 0.5) * SUB - box[0]) * s
+                    for i in range(1, len(text))] + [float(img.width)]
+    return img, tuple(cuts)
+
+
+def fit_cell(text, cell, max_w=940, **kw):
+    """Largest cell <= `cell` at which the text fits within max_w."""
+    w1 = pixel_text(text, SUB, **kw).width
+    return math.floor(min(cell, max_w * SUB / w1) * 4) / 4
 
 
 def text_fit(text, cell, max_w=940, **kw):
-    """pixel_text at `cell`, shrunk if needed so it fits within max_w."""
-    w1 = pixel_text(text, SUB, **kw).width
-    cell = min(cell, max_w * SUB / w1)
-    return pixel_text(text, math.floor(cell * 4) / 4, **kw)
+    return pixel_text(text, fit_cell(text, cell, max_w, **kw), **kw)
 
 
 _glow_cache = {}
@@ -525,7 +541,7 @@ class World:
         return (np.repeat(np.repeat(a, PX, 0), PX, 1), np.repeat(np.repeat(m, PX, 0), PX, 1),
                 top_lr * PX)
 
-    def render(self, t, rays=0.3, glow=0.5, terrain=1.0, dim=0.0):
+    def render(self, t, rays=0.3, glow=0.5, terrain=1.0, dim=0.0, blur=0.0):
         lr = self.sky.copy()
         if glow > 0:
             lr += self.glow[..., None] * np.array([150, 92, 18], np.float32) * glow
@@ -559,6 +575,10 @@ class World:
             self._blit(frame, a, m, y0 + lift, int(t * self.speed * k * PX))
         a, m, y0 = self.terrain
         self._blit(frame, a, m, y0 + lift, int(t * self.speed * PX))
+        if blur > 0.05:  # depth of field: soften the world so the text in front pops
+            im = Image.fromarray(frame).resize((W // 4, H // 4), Image.BILINEAR)
+            im = im.filter(ImageFilter.GaussianBlur(blur * 2.5))
+            frame = np.array(im.resize((W, H), Image.BILINEAR))
         return frame
 
     @staticmethod
@@ -712,9 +732,6 @@ class Counter(El):
         i = max(k for k, (ts, _) in enumerate(self.steps) if ts <= t)
         ts, img = self.steps[i]
         sc = lerp(1.35, 1, ease_out_cubic((t - ts) / 0.12))
-        ot = self.end - t
-        if ot < 0.18:
-            sc *= max(0.0, 1 - ease_in_back(1 - ot / 0.18))
         x, y = CX + ctx.dx, self.y + ctx.dy
         if self.glows:
             place(ctx.canvas, self.glows[i], x, y, sc, 0.8, smooth=True)
@@ -951,9 +968,6 @@ class KenBurns(El):
         dy = lerp(260, 0, ease_out_cubic(p))
         al = clamp(p * 2)
         sc = 1.0
-        ot = self.end - t
-        if ot < 0.22:
-            sc = max(0.0, 1 - ease_in_back(1 - ot / 0.22))
         place(ctx.canvas, layer, (x0 + x1) / 2 + ctx.dx, (y0 + y1) / 2 + dy + ctx.dy, sc, al, smooth=True)
         for label, rx, ty, h0 in tags:
             s = ease_out_back((t - h0) / 0.25)
@@ -1000,10 +1014,7 @@ class EloBar(El):
     def draw(self, ctx, t):
         p = (t - self.start) / 0.3
         al = clamp(p * 2)
-        ot = self.end - t
-        sc = max(0.0, 1 - ease_in_back(1 - ot / 0.18)) if ot < 0.18 else 1.0
-        if sc <= 0.02:
-            return
+        sc = 1.0
         layer = self.box.copy()
         fill = lerp(0.08, 0.88, ease_out_cubic((t - self.start - 0.3) / 1.1))
         iw = layer.width - 2 * 30
@@ -1020,22 +1031,190 @@ class EloBar(El):
 # ----------------------------------------------------------------------------
 # a short = background keys + elements + sound cues
 
-HOOK_BG = dict(rays=1.0, glow=0.95, terrain=0.0, dim=0.0)
-WORLD_BG = dict(rays=0.3, glow=0.5, terrain=1.0, dim=0.0)
-HYPE_BG = dict(rays=0.75, glow=0.8, terrain=1.0, dim=0.0)
+class Letters(El):
+    """Text that builds one character at a time (drop or pop) and can ripple like a wave."""
+
+    def __init__(self, text, x, y, start, end, cell, tkw, mode="drop", stagger=0.045, wave=0, glow=False):
+        super().__init__(start, end)
+        img, cuts = text_meta(text, cell, **tkw)
+        self.x, self.y, self.mode, self.stagger, self.wave = x, y, mode, stagger, wave
+        self.strips = []
+        for i, ch in enumerate(text):
+            a, b = round(cuts[i]), round(cuts[i + 1])
+            if ch != " " and b > a:
+                self.strips.append((img.crop((a, 0, b, img.height)), (a + b) / 2 - img.width / 2))
+        self.n = len(self.strips)
+        self.glow = glow_for(img) if glow else None
+
+    def letter_time(self, k):
+        return self.start + k * self.stagger + 0.12
+
+    def land_time(self):
+        return self.letter_time(self.n - 1)
+
+    def draw(self, ctx, t):
+        if self.glow is not None and t > self.land_time():
+            place(ctx.canvas, self.glow, self.x + ctx.dx, self.y + ctx.dy,
+                  alpha=clamp((t - self.land_time()) / 0.3) * (0.75 + 0.25 * beat_pulse(t)), smooth=True)
+        for k, (strip, ox) in enumerate(self.strips):
+            p = (t - self.start - k * self.stagger) / 0.3
+            if p <= 0:
+                continue
+            sc, dy, al = 1.0, 0.0, clamp(p * 3)
+            if self.mode == "drop":
+                dy = lerp(-240, 0, ease_out_back(p, 2.0))
+            else:
+                sc = ease_out_back(p, 2.6)
+            if self.wave and p >= 1:
+                dy += math.sin(t * 5 - k * 0.7) * self.wave
+            place(ctx.canvas, strip, self.x + ox + ctx.dx, self.y + dy + ctx.dy, sc, al)
+
+
+class Ring(El):
+    """Shockwave ring that bursts out of a big reveal."""
+    z = -1
+
+    def __init__(self, t0, x, y, r0=70, r1=640, dur=0.5, color=G_PALE):
+        super().__init__(t0, t0 + dur)
+        self.x, self.y, self.r0, self.r1, self.dur, self.color = x, y, r0, r1, dur, color
+
+    def draw(self, ctx, t):
+        p = (t - self.start) / self.dur
+        r = lerp(self.r0, self.r1, ease_out_cubic(p))
+        w = max(2, int(24 * (1 - p)))
+        size = int(2 * r + 2 * w + 4)
+        layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        ImageDraw.Draw(layer).ellipse((w, w, size - w, size - w), outline=(*self.color, int(235 * (1 - p))),
+                                      width=w)
+        place(ctx.canvas, layer, self.x + ctx.dx, self.y + ctx.dy)
+
+
+@lru_cache(None)
+def flare_img():
+    w, h = 1700, 300
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    dx, dy = xx - w / 2, yy - h / 2
+    a = (np.exp(-(dy / 5) ** 2) * np.exp(-(dx / 560) ** 2)
+         + np.exp(-(dx ** 2 + dy ** 2) / 65 ** 2) * 0.9
+         + np.exp(-(dx ** 2 + dy ** 2) / 210 ** 2) * 0.3)
+    out = np.zeros((h, w, 4), np.uint8)
+    out[..., :3] = (255, 238, 196)
+    out[..., 3] = np.clip(a, 0, 1) * 255
+    return Image.fromarray(out)
+
+
+class Flare(El):
+    """Anamorphic light streak that sweeps across the screen."""
+    z = 7
+
+    def __init__(self, t0, y, dur=0.7):
+        super().__init__(t0, t0 + dur)
+        self.y, self.dur = y, dur
+
+    def draw(self, ctx, t):
+        p = (t - self.start) / self.dur
+        place(ctx.canvas, flare_img(), lerp(-250, W + 250, ease_in_out(p)), self.y,
+              alpha=math.sin(math.pi * p) * 0.9)
+
+
+class SpeedLines(El):
+    """Anime-style radial speed lines for the hooks."""
+    z = -2
+
+    def __init__(self, start, end, cy=880, n=46, seed=3):
+        super().__init__(start, end)
+        self.cy, self.n, self.seed = cy, n, seed
+
+    def draw(self, ctx, t):
+        fade = min(clamp((t - self.start) / 0.15), clamp((self.end - t) / 0.15))
+        r = np.random.default_rng(int(t * 15) * 31 + self.seed)  # new lines every other frame
+        layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        d = ImageDraw.Draw(layer)
+        for _ in range(self.n):
+            a, r0, hw = r.uniform(0, 2 * math.pi), r.uniform(380, 660), r.uniform(0.004, 0.015)
+            d.polygon([(CX + math.cos(a) * r0, self.cy + math.sin(a) * r0),
+                       (CX + math.cos(a - hw) * 2400, self.cy + math.sin(a - hw) * 2400),
+                       (CX + math.cos(a + hw) * 2400, self.cy + math.sin(a + hw) * 2400)],
+                      fill=(255, 238, 200, int(r.uniform(45, 130) * fade)))
+        ctx.canvas.alpha_composite(layer)
+
+
+@lru_cache(None)
+def ember_img(s):
+    return Image.new("RGBA", (s, s), (255, 190, 70, 255))
+
+
+class Embers(El):
+    """Glowing embers drifting up through the whole video (the bloom pass makes them glow)."""
+    z = -1
+
+    def __init__(self, start, end, n=22, seed=17):
+        super().__init__(start, end)
+        r = np.random.default_rng(seed)
+        self.p = [(r.uniform(0, W), r.uniform(0, H + 200), r.uniform(50, 150), r.uniform(0, 6.3),
+                   int(r.integers(1, 3)) * 6) for _ in range(n)]
+
+    def draw(self, ctx, t):
+        for x0, y0, v, ph, s in self.p:
+            y = (y0 - v * t) % (H + 200) - 100
+            x = x0 + math.sin(t * 1.2 + ph) * 36
+            place(ctx.canvas, ember_img(s), x, y, alpha=0.35 + 0.35 * math.sin(t * 6 + ph * 3))
+
+
+# ----------------------------------------------------------------------------
+# post-processing: camera moves, transitions, bloom
+
+def zoom_img(img, z):
+    w, h = W / z, H / z
+    return img.resize((W, H), Image.BILINEAR, box=(CX - w / 2, H / 2 - h / 2, CX + w / 2, H / 2 + h / 2))
+
+
+def bloom(arr, strength=0.5):
+    """Screen-blend a blurred copy of the bright parts back on top - makes the gold glow."""
+    small = np.asarray(Image.fromarray(arr.astype(np.uint8)).resize((W // 6, H // 6), Image.BILINEAR),
+                       np.float32)
+    bright = small * np.clip((small.max(-1, keepdims=True) - 150) / 105, 0, 1)
+    b = Image.fromarray(bright.astype(np.uint8))
+    mix = (np.asarray(b.filter(ImageFilter.GaussianBlur(3)), np.float32) * 0.6
+           + np.asarray(b.filter(ImageFilter.GaussianBlur(12)), np.float32) * 0.9)
+    up = np.asarray(Image.fromarray(np.clip(mix, 0, 255).astype(np.uint8)).resize((W, H), Image.BILINEAR),
+                    np.float32)
+    return 255 - (255 - arr) * (255 - up * strength) / 255
+
+
+HOOK_BG = dict(rays=1.0, glow=0.95, terrain=0.0, dim=0.0, blur=0.5)
+WORLD_BG = dict(rays=0.3, glow=0.5, terrain=1.0, dim=0.0, blur=0.7)
+HYPE_BG = dict(rays=0.75, glow=0.8, terrain=1.0, dim=0.0, blur=0.6)
+CAMERA_EXITS = ("zoom", "whip", "glitch")
 
 
 class Short:
     def __init__(self, name, title, duration):
         self.name, self.title, self.duration = name, title, duration
         self.els, self.sfx, self.shakes, self.bg_keys = [], [], [], []
-        self.drops, self.risers = [], []
+        self.drops, self.risers, self.punches, self.transitions = [], [], [], []
+        self.cur = (0.0, duration)
         self.world = World(duration)
 
     # -- building
     def add(self, el):
         self.els.append(el)
         return el
+
+    def scene(self, t0, t1, exit="cut"):
+        """Start a scene: elements added next default to ending at t1, where the exit transition plays."""
+        self.cur = (t0, t1)
+        if exit == "tiles":
+            self.add(TileWipe(t1))
+            self.cue(t1 - 0.28, "whoosh", dur=0.5)
+        elif exit in CAMERA_EXITS:
+            self.transitions.append((t1, exit))
+            if exit == "zoom":
+                self.cue(t1 - 0.3, "zoomwhoosh")
+            elif exit == "whip":
+                self.cue(t1 - 0.22, "whoosh", dur=0.4)
+            else:
+                self.cue(t1 - 0.14, "glitch")
 
     def bg(self, t, params):
         self.bg_keys.append((t, params))
@@ -1046,38 +1225,57 @@ class Short:
     def shake(self, t, amp):
         self.shakes.append((t, amp))
 
-    def _sprite(self, img, y, start, end, anim, x=CX, sfx=True, **kw):
-        el = self.add(Sprite(img, x, y, start, end, anim=anim, **kw))
-        if sfx and anim == "slam":
-            self.cue(el.land_time() - 0.02, "impact")
-            self.shake(el.land_time(), 20)
-        elif sfx and anim == "drop":
-            self.cue(el.land_time() - 0.02, "impact")
-            self.shake(el.land_time(), 26)
+    def punch(self, t, amount):
+        self.punches.append((t, amount))
+
+    def _sprite(self, img, y, start, end=None, anim="pop", x=CX, sfx=True, punch=None, ring=False, **kw):
+        kw.setdefault("out", None)
+        el = self.add(Sprite(img, x, y, start, self.cur[1] if end is None else end, anim=anim, **kw))
+        land = el.land_time()
+        if anim in ("slam", "drop"):
+            if sfx:
+                self.cue(land - 0.02, "impact")
+            self.shake(land, 26 if anim == "drop" else 20)
+            self.punch(land, 0.035 if punch is None else punch)
         elif sfx and anim in ("pop", "rise", "swing"):
             self.cue(start, "pop" if anim != "swing" else "whoosh", dur=0.3)
+        if ring:
+            self.add(Ring(land, x, y))
         return el
 
-    def text(self, s, y, start, end, cell=18, style="gold", face="silk", anim="pop", max_w=940, **kw):
+    def text(self, s, y, start, end=None, cell=18, style="gold", face="silk", anim="pop", max_w=940,
+             wave=0, **kw):
+        tkw = dict(style=style, face=face)
         if face == "press":
-            img = text_fit(s, cell, max_w, style=style, face=face, outline=1, extrude=1, shadow=2)
-        else:
-            img = text_fit(s, cell, max_w, style=style, face=face)
-        return self._sprite(img, y, start, end, anim, **kw)
+            tkw.update(outline=1, extrude=1, shadow=2)
+        if anim in ("letters", "letters_pop"):
+            el = self.add(Letters(s, kw.pop("x", CX), y, start, self.cur[1] if end is None else end,
+                                  fit_cell(s, cell, max_w, **tkw), tkw, wave=wave, glow=kw.get("glow", False),
+                                  mode="drop" if anim == "letters" else "pop"))
+            for k in range(el.n):
+                self.cue(el.letter_time(k), "type", semi=k)
+            if kw.get("ring"):
+                self.add(Ring(el.land_time(), CX, y))
+            return el
+        return self._sprite(text_fit(s, cell, max_w, **tkw), y, start, end, anim, **kw)
 
-    def image(self, img, y, start, end, width, anim="pop", **kw):
+    def image(self, img, y, start, end=None, width=600, anim="pop", **kw):
         img = img.resize((width, round(img.height * width / img.width)), Image.LANCZOS)
         return self._sprite(img, y, start, end, anim, smooth=True, **kw)
 
-    def sprite(self, name, k, x, y, start, end, anim="pop", **kw):
+    def sprite(self, name, k, x, y, start, end=None, anim="pop", **kw):
         return self._sprite(sprite(name, k), y, start, end, anim, x=x, **kw)
 
-    def counter(self, steps, y, end, cell, tick="blip", **kw):
-        self.add(Counter(steps, y, end, cell, **kw))
+    def counter(self, steps, y, cell, end=None, tick="blip", ring=False, **kw):
+        self.add(Counter(steps, y, self.cur[1] if end is None else end, cell, **kw))
         for i, (t, _) in enumerate(steps):
             self.cue(t, tick, semi=i * 2)
-        self.cue(steps[-1][0], "impact")
-        self.shake(steps[-1][0], 20)
+        last = steps[-1][0]
+        self.cue(last, "impact")
+        self.shake(last, 20)
+        self.punch(last, 0.06)
+        if ring:
+            self.add(Ring(last, CX, y))
 
     def burst(self, t, x, y, **kw):
         self.add(Burst(t, x, y, **kw))
@@ -1085,35 +1283,39 @@ class Short:
     def rain(self, start, end, **kw):
         self.add(CoinRain(start, end, **kw))
 
-    def wipe(self, t):
-        self.add(TileWipe(t))
-        self.cue(t - 0.28, "whoosh", dur=0.5)
-
     def drop(self, t):
-        """The beat drop: full band comes in, crash + boom, flash, shake."""
+        """The beat drop: full band comes in, reverse cymbal into crash + sub boom, flash, flare, punch."""
         self.drops.append(t)
+        self.cue(t - 0.8, "reverse")
         self.cue(t, "boom")
         self.add(Flash(t))
+        self.add(Flare(t + 0.05, 900))
         self.shake(t, 28)
+        self.punch(t, 0.08)
 
     def riser(self, t, dur):
         self.risers.append((t, dur))
 
-    def cta(self, t0, end, subline):
+    def cta(self, t0, subline):
+        self.scene(t0, self.duration)
         self.bg(t0, HYPE_BG)
-        self.rain(t0 + 0.2, end, n=22, seed=91)
-        self.image(assets()["trophy"], 610, t0, end, 560, anim="pop", glow=True, bob=12, out=None)
-        self.text("JOIN NOW", 1010, t0 + 0.5, end, cell=22, anim="slam", pulse=0.05, out=None)
-        box = self.add(IPBox(t0 + 1.0, end, 1250, type_at=t0 + 1.25))
+        self.rain(t0 + 0.2, self.duration, n=22, seed=91)
+        self.image(assets()["trophy"], 610, t0, width=560, anim="pop", glow=True, bob=12, ring=True)
+        self.text("JOIN NOW", 1010, t0 + 0.5, cell=22, anim="letters", wave=9, glow=True)
+        box = self.add(IPBox(t0 + 1.0, self.duration, 1250, type_at=t0 + 1.25))
         self.cue(t0 + 1.0, "pop")
         for i in range(box.n):
             self.cue(box.type_at + i * box.step, "type", semi=i)
         self.cue(box.done, "kaching")
         self.burst(box.done, CX, 1250, coins=12, sparks=16, seed=33)
-        self.text(subline, 1475, box.done + 0.4, end, cell=5, style="white", face="press", anim="rise", out=None)
+        self.add(Ring(box.done, CX, 1250, r1=760))
+        self.add(Flare(box.done, 1250))
+        self.punch(box.done, 0.05)
+        self.text(subline, 1475, box.done + 0.4, cell=5, style="white", face="press", anim="rise")
 
     # -- rendering
     def finish(self):
+        self.add(Embers(0, self.duration))
         self.els.sort(key=lambda e: e.z)
         self.bg_keys.sort(key=lambda k: k[0])
         return self
@@ -1140,6 +1342,61 @@ class Short:
                 dy += uy * a
         return dx, dy
 
+    def camera(self, t):
+        """Whole-frame zoom (+ radial blur), whip offset (+ motion blur) and glitch amount at time t."""
+        z, rb, ox, hb, g = 1.0, 0.0, 0.0, 0.0, 0.0
+        for tp, amt in self.punches:
+            d = t - tp
+            if 0 <= d < 0.5:
+                z *= 1 + amt * math.exp(-d / 0.1)
+        for tc, kind in self.transitions:
+            d = t - tc
+            if kind == "zoom":
+                if -0.2 <= d < 0:
+                    p = (d + 0.2) / 0.2
+                    z *= 1 + 1.3 * ease_in_cubic(p)
+                    rb = max(rb, p)
+                elif 0 <= d < 0.3:
+                    p = d / 0.3
+                    z *= lerp(1.45, 1, ease_out_cubic(p))
+                    rb = max(rb, 1 - p)
+            elif kind == "whip":
+                if -0.16 <= d < 0:
+                    p = (d + 0.16) / 0.16
+                    ox, hb = -ease_in_cubic(p) * W * 0.55, max(hb, p)
+                elif 0 <= d < 0.24:
+                    p = d / 0.24
+                    ox, hb = (1 - ease_out_cubic(p)) * W * 0.55, max(hb, 1 - p)
+            elif kind == "glitch" and -0.14 <= d < 0.16:
+                g = max(g, 1 - abs(d) / 0.16)
+        return z, rb, ox, hb, g
+
+    def post(self, img, t, i):
+        z, rb, ox, hb, g = self.camera(t)
+        if z > 1.002 and rb > 0.08:
+            arr = sum(np.asarray(zoom_img(img, z * (1 + 0.07 * k * rb)), np.float32) for k in range(4)) / 4
+        elif z > 1.002:
+            arr = np.asarray(zoom_img(img, z), np.float32)
+        else:
+            arr = np.asarray(img, np.float32)
+        if abs(ox) > 1 or hb > 0.05:
+            n = 6 if hb > 0.05 else 1
+            arr = sum(np.roll(arr, int(ox + j * 70 * hb), axis=1) for j in range(n)) / n
+        r = np.random.default_rng(i * 13 + 5)
+        if g > 0.02:  # glitch: displaced slices + RGB split
+            arr = arr.copy()
+            for _ in range(7):
+                y0, h = int(r.integers(0, H - 40)), int(r.integers(20, 180))
+                arr[y0:y0 + h] = np.roll(arr[y0:y0 + h], int(r.uniform(-1, 1) * 170 * g), axis=1)
+        ca = sum(amp * math.exp(-(t - ts) / 0.06) for ts, amp in self.shakes if 0 <= t - ts < 0.3)
+        split = int(26 * g + min(16, ca * 0.45))
+        if split >= 2:  # chromatic aberration on hits
+            arr = arr.copy()
+            arr[..., 0] = np.roll(arr[..., 0], split, axis=1)
+            arr[..., 2] = np.roll(arr[..., 2], -split, axis=1)
+        arr = bloom(arr)
+        return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+
     def frame(self, i):
         t = i / FPS
         arr = self.world.render(t, **self.bg_at(t))
@@ -1148,7 +1405,7 @@ class Short:
         for el in self.els:
             if el.start <= t < el.end:
                 el.draw(ctx, t)
-        return canvas.convert("RGB")
+        return self.post(canvas.convert("RGB"), t, i)
 
 
 # ----------------------------------------------------------------------------
@@ -1163,52 +1420,51 @@ def short_paid():
     s = Short("mcgold-short-1-get-paid", "Get paid to play Minecraft", 17.0)
     A = assets()
     s.bg(0, HOOK_BG)
-    s.bg(2.0, WORLD_BG)
 
-    # hook
-    s.text("GET PAID", 640, 0.0, 1.85, cell=19, anim="slam")
-    s.text("TO PLAY", 805, 0.5, 1.85, cell=19, style="white", anim="slam")
-    s.text("MINECRAFT?", 975, 1.0, 1.85, cell=17, anim="slam", glow=True)
+    s.scene(0.0, 2.0, "tiles")
+    s.add(SpeedLines(0.0, 2.0))
+    s.text("GET PAID", 640, 0.0, cell=19, anim="letters")
+    s.text("TO PLAY", 805, 0.5, cell=19, style="white", anim="slam")
+    s.text("MINECRAFT?", 975, 1.0, cell=17, anim="slam", glow=True, punch=0.08, ring=True)
     s.burst(1.12, CX, 975, seed=2)
     s.cue(1.12, "kaching")
     s.riser(1.0, 1.0)
-    s.wipe(2.0)
-    s.drop(2.0)
 
-    # the server
-    s.text("WELCOME TO", 430, 2.15, 3.9, cell=6, style="white", face="press", anim="pop")
-    s.image(A["trophy"], 830, 2.0, 3.9, 600, anim="drop", glow=True, bob=10)
-    s.text("WHERE WINNERS GET PAID", 1255, 2.75, 3.9, cell=5, face="press", anim="rise")
+    s.scene(2.0, 4.0, "zoom")
+    s.drop(2.0)
+    s.bg(2.0, WORLD_BG)
+    s.text("WELCOME TO", 430, 2.15, cell=6, style="white", face="press", anim="pop")
+    s.image(A["trophy"], 830, 2.0, width=600, anim="drop", glow=True, bob=10, ring=True)
+    s.text("WHERE WINNERS GET PAID", 1255, 2.75, cell=5, face="press", anim="rise")
     s.add(Badge(2.4, 10.8))
 
-    # events
+    s.scene(4.0, 6.5, "whip")
     s.bg(4.0, HYPE_BG)
-    s.image(A["weekend"], 560, 4.0, 6.35, 860, anim="slam")
-    s.counter([(4.5, "1"), (4.625, "2"), (4.75, "3"), (4.875, "4"), (5.0, "5+")], 930, 6.35, cell=44)
-    s.text("EVENTS", 1160, 5.25, 6.35, cell=18, anim="pop")
-    s.text("EVERY SATURDAY", 1295, 5.5, 6.35, cell=12, style="white", anim="pop")
+    s.image(A["weekend"], 560, 4.0, width=860, anim="slam")
+    s.counter([(4.5, "1"), (4.625, "2"), (4.75, "3"), (4.875, "4"), (5.0, "5+")], 930, cell=44, ring=True)
+    s.text("EVENTS", 1160, 5.25, cell=18, anim="letters_pop")
+    s.text("EVERY SATURDAY", 1295, 5.5, cell=12, style="white", anim="rise")
 
-    # $5 per win
+    s.scene(6.5, 8.5, "glitch")
     s.bg(6.5, WORLD_BG)
-    s.add(Flash(6.5, strength=0.5))
     s.rain(6.5, 11.0, n=36)
-    s.text("WIN AN EVENT", 560, 6.5, 8.35, cell=15, style="white", anim="slam")
-    s.text("$5", 890, 7.0, 8.35, cell=62, anim="slam", glow=True, shine_at=7.3, pulse=0.04)
+    s.text("WIN AN EVENT", 560, 6.5, cell=15, style="white", anim="letters")
+    s.text("$5", 890, 7.0, cell=62, anim="slam", glow=True, shine_at=7.3, pulse=0.04, punch=0.1, ring=True)
+    s.add(Flare(7.05, 890))
     s.cue(7.1, "kaching")
     s.burst(7.12, CX, 890, seed=4)
-    s.text("PER WIN!", 1210, 7.5, 8.35, cell=20, anim="pop")
+    s.text("PER WIN!", 1210, 7.5, cell=20, anim="pop")
 
-    # $25 in one Saturday
-    s.text("WIN 5 EVENTS", 560, 8.5, 10.85, cell=15, style="white", anim="slam")
-    s.counter([(9.0, "$5"), (9.25, "$10"), (9.5, "$15"), (9.75, "$20"), (10.0, "$25")], 880, 10.85,
-              cell=52, tick="coin")
+    s.scene(8.5, 11.0, "tiles")
+    s.text("WIN 5 EVENTS", 560, 8.5, cell=15, style="white", anim="slam")
+    s.counter([(9.0, "$5"), (9.25, "$10"), (9.5, "$15"), (9.75, "$20"), (10.0, "$25")], 880, cell=52,
+              tick="coin", ring=True)
     s.burst(10.02, CX, 880, seed=6)
-    s.text("IN ONE SATURDAY", 1170, 10.0, 10.85, cell=11, anim="pop")
+    s.text("IN ONE SATURDAY", 1170, 10.0, cell=11, anim="rise")
     s.riser(10.0, 1.0)
 
-    s.wipe(11.0)
     s.drop(11.0)
-    s.cta(11.0, 17.0, "SEE YOU SATURDAY!")
+    s.cta(11.0, "SEE YOU SATURDAY!")
     return s.finish()
 
 
@@ -1216,57 +1472,62 @@ def short_leaderboard():
     s = Short("mcgold-short-2-beat-number-one", "Can you beat #1?", 20.0)
     A = assets()
     s.bg(0, HOOK_BG)
-    s.bg(2.0, WORLD_BG)
 
-    s.text("CAN YOU", 640, 0.0, 1.85, cell=20, style="white", anim="slam")
-    s.text("BEAT", 800, 0.5, 1.85, cell=20, style="white", anim="slam")
-    s.text("#1?", 1030, 1.0, 1.85, cell=50, anim="slam", glow=True)
+    s.scene(0.0, 2.0, "tiles")
+    s.add(SpeedLines(0.0, 2.0, cy=1000))
+    s.text("CAN YOU", 640, 0.0, cell=20, style="white", anim="letters")
+    s.text("BEAT", 800, 0.5, cell=20, style="white", anim="slam")
+    s.text("#1?", 1030, 1.0, cell=50, anim="slam", glow=True, punch=0.1, ring=True)
     s.burst(1.12, CX, 1030, seed=12)
     s.riser(1.0, 1.0)
-    s.wipe(2.0)
-    s.drop(2.0)
 
+    s.scene(2.0, 8.0, "zoom")
+    s.drop(2.0)
+    s.bg(2.0, WORLD_BG)
     full = min(840 / 349, 1040 / 432)
     rect = (120, 420, 960, 1460)
     keys = [(2.0, 185, 134, 3.9), (4.0, 185, 140, 4.0), (4.7, 174.5, 216, full), (5.6, 174.5, 216, full),
             (6.3, 174.5, 246.5, 2.8), (8.0, 174.5, 246.5, 2.9)]
     hl = [(2.5, 4.4, A_NETWAX, G_GOLD, tag("#1 - 23 WINS"), False),
           (3.25, 4.4, A_QOCY, G_GOLD, tag("#2 - 20 WINS", "white"), True),
-          (6.5, 7.85, A_YOURS, (255, 70, 60), None, False)]
-    s.add(KenBurns(A["board"], rect, keys, 2.0, 7.85, highlights=hl, dims=[(6.6, 8.0, 0.62)]))
+          (6.5, 8.0, A_YOURS, (255, 70, 60), None, False)]
+    s.add(KenBurns(A["board"], rect, keys, 2.0, 8.0, highlights=hl, dims=[(6.6, 8.0, 0.62)]))
     s.cue(2.5, "blip", semi=7)
     s.cue(3.25, "blip", semi=4)
     s.cue(4.6, "whoosh", dur=0.5)
     s.cue(6.2, "whoosh", dur=0.5)
     s.cue(6.5, "blip", semi=-5)
-    s.text("YOURS: 0?", 960, 6.9, 7.85, cell=26, style="red", anim="slam", glow=True)
+    s.text("YOURS: 0?", 960, 6.9, cell=26, style="red", anim="slam", glow=True, punch=0.06)
     s.add(Badge(2.4, 14.8))
 
+    s.scene(8.0, 10.0, "glitch")
     s.bg(8.0, HYPE_BG)
-    s.add(Flash(8.0, strength=0.5))
-    s.text("LET'S", 760, 8.0, 9.85, cell=22, style="white", anim="slam")
-    s.text("CHANGE", 925, 8.5, 9.85, cell=24, anim="slam")
-    s.text("THAT.", 1090, 9.0, 9.85, cell=24, anim="slam", glow=True)
+    s.add(SpeedLines(8.0, 10.0))
+    s.text("LET'S", 760, 8.0, cell=22, style="white", anim="letters")
+    s.text("CHANGE", 925, 8.5, cell=24, anim="slam")
+    s.text("THAT.", 1090, 9.0, cell=24, anim="slam", glow=True, punch=0.08, ring=True)
 
+    s.scene(10.0, 12.5, "whip")
     s.bg(10.0, WORLD_BG)
     s.rain(10.0, 15.0, n=36, seed=21)
-    s.text("EVERY EVENT WIN", 560, 10.0, 12.35, cell=14, style="white", anim="slam")
-    s.text("= $5", 870, 10.5, 12.35, cell=50, anim="slam", glow=True, shine_at=10.8, pulse=0.04)
+    s.text("EVERY EVENT WIN", 560, 10.0, cell=14, style="white", anim="letters")
+    s.text("= $5", 870, 10.5, cell=50, anim="slam", glow=True, shine_at=10.8, pulse=0.04, punch=0.1, ring=True)
+    s.add(Flare(10.55, 870))
     s.cue(10.6, "kaching")
     s.burst(10.62, CX, 870, seed=14)
-    s.text("PER WIN!", 1170, 11.0, 12.35, cell=20, anim="pop")
+    s.text("PER WIN!", 1170, 11.0, cell=20, anim="pop")
 
-    s.text("5+ EVENTS", 600, 12.5, 14.85, cell=26, anim="slam")
-    s.text("EVERY SATURDAY", 770, 13.0, 14.85, cell=13, style="white", anim="pop")
+    s.scene(12.5, 15.0, "tiles")
+    s.text("5+ EVENTS", 600, 12.5, cell=26, anim="slam")
+    s.text("EVERY SATURDAY", 770, 13.0, cell=13, style="white", anim="rise")
     for i in range(5):
-        s.sprite("coin", 9, CX + (i - 2) * 170, 980, 13.25 + i * 0.125, 14.85, anim="pop", bob=8, sfx=False)
+        s.sprite("coin", 9, CX + (i - 2) * 170, 980, 13.25 + i * 0.125, anim="pop", bob=8, sfx=False)
         s.cue(13.25 + i * 0.125, "coin", semi=i * 2)
-    s.text("WIN THEM ALL = $25+", 1190, 14.0, 14.85, cell=11, anim="pop")
+    s.text("WIN THEM ALL = $25+", 1190, 14.0, cell=11, anim="pop")
     s.riser(14.0, 1.0)
 
-    s.wipe(15.0)
     s.drop(15.0)
-    s.cta(15.0, 20.0, "CLIMB THE LEADERBOARD")
+    s.cta(15.0, "CLIMB THE LEADERBOARD")
     return s.finish()
 
 
@@ -1274,69 +1535,72 @@ def short_pvp():
     s = Short("mcgold-short-3-new-pvp-server", "Looking for a new PvP server?", 20.0)
     A = assets()
     s.bg(0, HOOK_BG)
-    s.bg(2.0, WORLD_BG)
 
-    s.text("LOOKING FOR A", 620, 0.0, 1.85, cell=13, style="white", anim="slam")
-    s.text("NEW PVP", 800, 0.5, 1.85, cell=26, anim="slam")
-    s.text("SERVER?", 990, 1.0, 1.85, cell=26, anim="slam", glow=True)
+    s.scene(0.0, 2.0, "tiles")
+    s.add(SpeedLines(0.0, 2.0, cy=900))
+    s.text("LOOKING FOR A", 620, 0.0, cell=13, style="white", anim="letters_pop")
+    s.text("NEW PVP", 800, 0.5, cell=26, anim="slam")
+    s.text("SERVER?", 990, 1.0, cell=26, anim="slam", glow=True, punch=0.08, ring=True)
     s.burst(1.12, CX, 990, seed=31)
     s.riser(1.0, 1.0)
-    s.wipe(2.0)
-    s.drop(2.0)
 
     # server list entry + click
+    s.scene(2.0, 4.0, "zoom")
+    s.drop(2.0)
+    s.bg(2.0, WORLD_BG)
     srv = A["server"].resize((1040, round(A["server"].height * 1040 / A["server"].width)), Image.LANCZOS)
-    s.text("ADD THIS ONE:", 650, 2.1, 3.9, cell=6, style="white", face="press", anim="pop")
-    s.add(Sprite(srv, CX, 860, 2.25, 3.9, anim="right", smooth=True))
+    s.text("ADD THIS ONE:", 650, 2.1, cell=6, style="white", face="press", anim="pop")
+    s._sprite(srv, 860, 2.25, anim="right", smooth=True, sfx=False)
     s.cue(2.25, "whoosh", dur=0.35)
     sy0 = 860 - srv.height / 2
-    s.add(Selection((CX - srv.width // 2, sy0, CX + srv.width // 2, sy0 + srv.height), 3.15, 3.75))
-    s.add(Cursor([(2.6, 900, 1350), (3.1, 470, 880)], 2.6, 3.75, click_at=3.15))
+    s.add(Selection((CX - srv.width // 2, sy0, CX + srv.width // 2, sy0 + srv.height), 3.15, 4.0))
+    s.add(Cursor([(2.6, 900, 1350), (3.1, 470, 880)], 2.6, 4.0, click_at=3.15))
     s.cue(3.15, "select")
-    s.text("IP: MC.GOLD", 1090, 3.2, 3.9, cell=7, face="press", anim="pop", sfx=False)
+    s.text("IP: MC.GOLD", 1090, 3.2, cell=7, face="press", anim="pop", sfx=False)
     s.add(Badge(4.0, 13.8))
 
-    # feature 1
+    s.scene(4.0, 6.5, "whip")
     s.bg(4.0, HYPE_BG)
-    s.sprite("sword", 17, CX, 740, 4.0, 6.35, anim="swing", bob=8)
+    s.sprite("sword", 17, CX, 740, 4.0, anim="swing", bob=8)
     s.cue(4.25, "impact")
     s.shake(4.25, 16)
-    s.text("VANILLA PVP", 1080, 4.5, 6.35, cell=20, anim="slam")
-    s.text("JUST YOU AND YOUR SWORD", 1225, 5.0, 6.35, cell=5, style="white", face="press", anim="rise")
+    s.punch(4.25, 0.06)
+    s.add(Ring(4.25, CX, 740))
+    s.text("VANILLA PVP", 1080, 4.5, cell=20, anim="slam")
+    s.text("JUST YOU AND YOUR SWORD", 1225, 5.0, cell=5, style="white", face="press", anim="rise")
 
-    # feature 2
+    s.scene(6.5, 9.0, "glitch")
     s.bg(6.5, WORLD_BG)
     for i, (name, x) in enumerate([("head_gold", 150), ("head_white", 340), ("head_purple", 740),
                                    ("head_red", 930)]):
         t0 = 6.5 + [0, 0.125, 0.375, 0.5][i]
-        s.sprite(name, 18, x, 740, t0, 8.85, anim="pop", bob=10, sfx=False)
+        s.sprite(name, 18, x, 740, t0, anim="pop", bob=10, sfx=False)
         s.cue(t0, "blip", semi=i * 3)
-    s.text("VS", 740, 6.75, 8.85, cell=13, style="red", anim="slam", x=CX)
-    s.text("2V2 ELO", 990, 7.0, 8.85, cell=24, anim="slam")
-    s.text("RANKED DUOS", 1120, 7.5, 8.85, cell=6, style="white", face="press", anim="rise")
-    s.add(EloBar(1290, 7.5, 8.85))
+    s.text("VS", 740, 6.75, cell=13, style="red", anim="slam")
+    s.text("2V2 ELO", 990, 7.0, cell=24, anim="slam", ring=True)
+    s.text("RANKED DUOS", 1120, 7.5, cell=6, style="white", face="press", anim="rise")
+    s.add(EloBar(1290, 7.5, 9.0))
     s.cue(7.8, "riser_short")
 
-    # feature 3
+    s.scene(9.0, 11.5, "zoom")
     s.bg(9.0, HYPE_BG)
-    s.image(A["weekend"], 620, 9.0, 11.35, 860, anim="slam")
-    s.text("5+ EVENTS", 930, 9.5, 11.35, cell=24, anim="slam")
-    s.text("EVERY SATURDAY", 1090, 10.0, 11.35, cell=12, style="white", anim="pop")
+    s.image(A["weekend"], 620, 9.0, width=860, anim="slam")
+    s.text("5+ EVENTS", 930, 9.5, cell=24, anim="slam", ring=True)
+    s.text("EVERY SATURDAY", 1090, 10.0, cell=12, style="white", anim="letters_pop")
 
-    # $5
+    s.scene(11.5, 14.0, "tiles")
     s.bg(11.5, WORLD_BG)
-    s.add(Flash(11.5, strength=0.5))
     s.rain(11.5, 14.5, n=34, seed=41)
-    s.text("WIN AN EVENT", 560, 11.5, 13.85, cell=15, style="white", anim="slam")
-    s.text("$5", 890, 12.0, 13.85, cell=62, anim="slam", glow=True, shine_at=12.3, pulse=0.04)
+    s.text("WIN AN EVENT", 560, 11.5, cell=15, style="white", anim="letters")
+    s.text("$5", 890, 12.0, cell=62, anim="slam", glow=True, shine_at=12.3, pulse=0.04, punch=0.1, ring=True)
+    s.add(Flare(12.05, 890))
     s.cue(12.1, "kaching")
     s.burst(12.12, CX, 890, seed=42)
-    s.text("PER WIN!", 1210, 12.5, 13.85, cell=20, anim="pop")
+    s.text("PER WIN!", 1210, 12.5, cell=20, anim="pop")
     s.riser(13.0, 1.0)
 
-    s.wipe(14.0)
     s.drop(14.0)
-    s.cta(14.0, 20.0, "BRING YOUR DUO!")
+    s.cta(14.0, "BRING YOUR DUO!")
     return s.finish()
 
 
@@ -1432,9 +1696,35 @@ def sfx(name, dur=0.5, semi=0):
         body = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / 0.16)
         return body + lowpass(noise(n, 7000), 10) * np.exp(-t / 0.05) * 1.2
     if name == "boom":
-        a, b = sfx("impact"), crash()
+        a, b, c = sfx("impact"), crash(), sfx("sub")
         b[:len(a)] += a * 1.2
+        b[:len(c)] += c * 0.9
         return b
+    if name == "sub":
+        n = int(0.9 * SR)
+        t = np.arange(n) / SR
+        f = 38 + 40 * np.exp(-t / 0.15)
+        return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / 0.35)
+    if name == "reverse":
+        x = crash()[:int(0.8 * SR)][::-1].copy()
+        return x * np.linspace(0, 1, len(x)) ** 2
+    if name == "zoomwhoosh":
+        n = int(0.3 * SR)
+        p = np.arange(n) / n
+        f = 300 * 5 ** p
+        return sfx("whoosh", dur=0.3)[:n] + np.sin(2 * np.pi * np.cumsum(f) / SR) * p ** 2 * 0.5
+    if name == "glitch":
+        n, seg = int(0.3 * SR), int(0.025 * SR)
+        r = np.random.default_rng(5)
+        out = np.zeros(n)
+        for k in range(0, n, seg):
+            m = min(seg, n - k)
+            kind = r.integers(0, 3)
+            if kind == 0:
+                out[k:k + m] = osc(r.uniform(150, 2400), (m + 1) / SR)[:m] * 0.5
+            elif kind == 1:
+                out[k:k + m] = np.round(noise(m, int(r.integers(0, SR * 3))) * 3) / 3 * 0.6
+        return out
     if name == "whoosh":
         n = int(dur * SR)
         t = np.arange(n) / SR
@@ -1555,7 +1845,8 @@ def build_audio(short, path):
         fx.add(t, sfx("riser", dur=d), 0.5)
     for t, name, kw in short.sfx:
         vol = {"impact": 0.75, "boom": 0.8, "whoosh": 0.45, "kaching": 0.5, "coin": 0.45, "pop": 0.4,
-               "type": 0.4, "blip": 0.5, "select": 0.5, "riser_short": 0.45}[name]
+               "type": 0.32, "blip": 0.5, "select": 0.5, "riser_short": 0.45, "reverse": 0.45,
+               "zoomwhoosh": 0.45, "glitch": 0.35, "sub": 0.8}[name]
         fx.add(t, sfx(name, **kw), vol)
 
     n = int(dur * SR)

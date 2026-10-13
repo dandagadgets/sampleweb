@@ -11,6 +11,15 @@ Every short ends on a **JOIN NOW / SERVER IP: MC.GOLD** card. The IP also stays 
 
 Each short has a matching `-cover.png` to use as the thumbnail.
 
+## Effects
+
+- **Transitions:** zoom-through (with radial blur), whip-pan (with motion blur), glitch (displaced slices and an RGB split) and the gold-block wipe. Each short mixes several.
+- **Camera:** zoom punches and screen shake on every hit, plus a colour-fringe flicker on impacts.
+- **Light:** bloom on everything gold, an anamorphic light flare sweeping across on beat drops, and shockwave rings on big reveals.
+- **Text:** words drop or pop in letter by letter, slam in, or rise. "JOIN NOW" ripples like a wave.
+- **Depth:** a soft-focus background, speed lines in the hooks, and embers and coins drifting behind the text.
+- **Sound:** reverse-cymbal swells and a sub-bass boom on the drops, zoom whooshes and glitch noise on the transitions.
+
 ## Captions to paste
 
 **Short 1: Get paid**
@@ -30,7 +39,7 @@ Each short has a matching `-cover.png` to use as the thumbnail.
 All the copy, timing, music and sound effects are in `render.py`. The functions `short_paid`, `short_leaderboard` and `short_pvp` each hold a readable timeline: change a line of text or a time, then run:
 
 ```sh
-python3 render.py              # all three (about 2 minutes on 4 cores)
+python3 render.py              # all three (about 4 minutes on 4 cores)
 python3 render.py leaderboard  # just one: paid | leaderboard | pvp
 ```
 
